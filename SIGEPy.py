@@ -1,8 +1,10 @@
+from random import randint
 from typing import Union, Optional
 
 from correios.models.data import (
     SERVICE_PAC, SERVICE_PAC_INDUSTRIAL,
-    SERVICE_SEDEX, SERVICE_SEDEX10, SERVICE_SEDEX12, SERVICE_E_SEDEX, SERVICE_SEDEX_INDUSTRIAL
+    SERVICE_SEDEX, SERVICE_SEDEX10, SERVICE_SEDEX12, SERVICE_E_SEDEX, SERVICE_SEDEX_INDUSTRIAL,
+    REGIONAL_DIRECTIONS
 )
 
 from correios.client import Correios
@@ -11,11 +13,11 @@ from correios.models.posting import PostingCard, PostingList, Contract, Shipping
 from correios.renderers import pdf
 
 
-class SIGEP:
+class SIGEPy:
     def __init__(self,
                  usr: str, pwd: str,
                  company_name: str, company_cnpj: str,
-                 contract_regional_direction: int, contract_number: str,
+                 contract_regional_direction: Union[int, str], contract_number: str,
                  contract_post_card_number: str, contract_admin_code: str):
         """
         This class operate the web services of brazilian post service, Correios, named SIGEP.\n
@@ -40,6 +42,14 @@ class SIGEP:
         :param contract_post_card_number: Company PostCard number.
         :param contract_admin_code: Company Administration code.
         """
+
+        if isinstance(contract_regional_direction, str):
+            contract_regional_direction = list(filter(lambda rd: rd[1]['code'] == contract_regional_direction,
+                                                      REGIONAL_DIRECTIONS.items()))
+            if len(contract_regional_direction) == 1:
+                contract_regional_direction = contract_regional_direction[0]
+            else:
+                raise Exception('Invalid regional direction.')
 
         self._user = User(company_name, company_cnpj)
         self._client = Correios(usr, pwd)
@@ -218,27 +228,3 @@ class SIGEP:
         if self.posting_list:
             return map(lambda labels: labels.tracking_code.code,
                        self.posting_list.shipping_labels)
-
-
-if __name__ == '__main__':
-    from samples.sample_data import *
-    from random import randint
-
-    sigep = SIGEP(
-        USERNAME, PASSWORD,
-        COMPANY_NAME, COMPANY_CNPJ,
-        CONTRACT_DR, CONTRACT_NUMBER, CONTRACT_POST_CARD_NUMBER, CONTRACT_ADMIN_CODE
-    )
-
-    sigep.create_sender(**SENDER_TEST)
-    sigep.create_receiver(**RECEIVER_TEST)
-    sigep.add_package(**PACKAGE_TEST)
-    sigep.add_package(**PACKAGE_TEST)
-
-    renderer = pdf.PostingReportPDFRenderer()
-    posting_list = sigep.generate_pre_delivery_data()
-
-    renderer.set_posting_list(posting_list)
-    file = renderer.render_posting_list()
-
-    print(posting_list.shipping_labels)

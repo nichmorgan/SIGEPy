@@ -99,7 +99,7 @@ The contract details are on the website: https://apps.correios.com.br/cas/login
 
 #### 1. Login in Company Home:
 
-![Login screen](docs/readme_images/login.png)  
+![Login screen](docs/readme_images/login.PNG)  
 <br />
 
 #### 2. In the Company home, click on Contract label, *Contrato* in brazilian Portuguese, as in the image below: 

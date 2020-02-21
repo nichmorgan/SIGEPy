@@ -1,7 +1,7 @@
 # SIGEPy
 Operate the web services of brazilian post service, Correios, named SIGEP with Python.
-## Usage
 
+## Usage
 ### Generate Delivery Post List (with tracking codes)
 1. Load the company credentials;
 2. Register a sender;

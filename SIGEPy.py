@@ -1,5 +1,5 @@
 from random import randint
-from typing import Union, Optional
+from typing import Union, Optional, overload
 
 from correios.models.data import (
     SERVICE_PAC, SERVICE_PAC_INDUSTRIAL,
@@ -8,17 +8,17 @@ from correios.models.data import (
 )
 
 from correios.client import Correios
-from correios.models.user import User, Service
-from correios.models.posting import PostingCard, PostingList, Contract, ShippingLabel, Address, Package
-from correios.renderers import pdf
+from correios.models.user import *
+from correios.models.posting import *
+from correios.renderers.pdf import PostingReportPDFRenderer, PDF
 
 
-class SIGEPy:
+class SIGEPy(Correios, PostingReportPDFRenderer):
     def __init__(self,
                  usr: str, pwd: str,
                  company_name: str, company_cnpj: str,
                  contract_regional_direction: Union[int, str], contract_number: str,
-                 contract_post_card_number: str, contract_admin_code: str):
+                 contract_post_card_number: str, contract_admin_code: str, **kwargs):
         """
         This class operate the web services of brazilian post service, Correios, named SIGEP.\n
         The basic usage is:
@@ -52,29 +52,31 @@ class SIGEPy:
                 raise Exception('Invalid regional direction.')
 
         self._user = User(company_name, company_cnpj)
-        self._client = Correios(usr, pwd)
+        # self._client = Correios(usr, pwd)
         self._contract = Contract(self._user, contract_number, contract_regional_direction)
         self._posting_card = PostingCard(self._contract, contract_post_card_number, contract_admin_code)
 
         self._packages = []
 
         self._posting_list = None
-        self._posting_list_renderer = pdf.PostingReportPDFRenderer()
-
+        self._render = PostingReportPDFRenderer(**kwargs)
         self._sender = None
         self._receiver = None
 
-    def _drop_posting_list_data(self) -> None:
-        """
-        Erase sender, receiver and packages data.
+        super(Correios, self).__init__(usr, pwd, **kwargs)
 
-        :return: None
-        """
-        self._packages = []
-        self._receiver = None
-        self._sender = None
+    def get_user(self, **kwargs) -> User:
+        return self.user
 
-    def generate_tracking_codes(self, service: Union[int, Service], quantity: int) -> list:
+    def get_posting_card_status(self, posting_card: PostingCard = None) -> Union[bool, None]:
+        if posting_card:
+            return super().get_posting_card_status(posting_card)
+        elif self.posting_card:
+            return super().get_posting_card_status(self.posting_card)
+        else:
+            return None
+
+    def request_tracking_codes(self, service: Union[Service, int], quantity=1, receiver_type="C", **kwargs) -> list:
         """
         Generates tracking codes.
 
@@ -82,11 +84,12 @@ class SIGEPy:
         :param quantity: The quantity of tracking codes to be generated.
         :return: List of tracking codes.
         """
-        if not isinstance(service, Service):
+        if isinstance(service, int):
             service = Service.get(service)
-        return self.client.request_tracking_codes(self.user, service, quantity)
 
-    def generate_pre_delivery_data(self, custom_id: Optional[int] = None) -> PostingList:
+        return super().request_tracking_codes(self.user, service, quantity, receiver_type)
+
+    def close_posting_list(self, custom_id: Optional[int] = None, **kwargs) -> PostingList:
         """
         Creates the pre-delivery's data.
 
@@ -99,30 +102,87 @@ class SIGEPy:
         assert isinstance(self.receiver, Address), 'Invalid receiver address.'
 
         if custom_id is None:
-            custom_id = randint(1, 9999999)
+            custom_id = randint(1000, 9999999)
 
         closed_posting_list = PostingList(custom_id)
         for package in self.packages:
             label = ShippingLabel(
                 posting_card=self.posting_card,
                 sender=self.sender, receiver=self.receiver,
-                service=package.service, tracking_code=self.generate_tracking_codes(package.service, 1)[0],
+                service=package.service, tracking_code=self.request_tracking_codes(package.service, 1)[0],
                 package=package
             )
 
             closed_posting_list.add_shipping_label(label)
 
-        closed_posting_list = self.client.close_posting_list(closed_posting_list, self.posting_card)
+        closed_posting_list = super().close_posting_list(closed_posting_list, self.posting_card)
         self.posting_list = closed_posting_list
-
+        self._render.posting_list = closed_posting_list
         self._drop_posting_list_data()
         return closed_posting_list
 
-    def generate_delivery_labels_pdf(self, filepath: str) -> None:
-        self._posting_list_renderer.render_labels().save(filepath)
+    def calculate_delivery_time(self,
+                                service: Union[Service, int] = None,
+                                from_zip: Union[ZipCode, int, str] = None,
+                                to_zip: Union[ZipCode, int, str] = None
+                                ) -> Union[int, List[int]]:
 
-    def generate_delivery_posting_list_pdf(self, filepath: str) -> None:
-        self._posting_list_renderer.render_posting_list().save(filepath)
+        if not any(obj is None for obj in [service, from_zip, to_zip]):
+            return super().calculate_delivery_time(service, from_zip, to_zip)
+
+        elif not any(obj is None for obj in [from_zip, to_zip]) and len(self.packages) > 0:
+            for package in self.packages:
+                yield super().calculate_delivery_time(package.service, from_zip, to_zip)
+
+        elif all(obj is None for obj in [service, from_zip, to_zip]):
+            for label in self.posting_list.shipping_labels.values():
+                yield super().calculate_delivery_time(label.service, label.sender.zip_code, label.receiver.zip_code)
+        else:
+            return None
+
+    def calculate_freights(
+            self,
+            posting_card: PostingCard,
+            services: List[Union[Service, int]],
+            from_zip: Union[ZipCode, int, str],
+            to_zip: Union[ZipCode, int, str],
+            package: Package,
+            value: Union[Decimal, float] = 0.00,
+            extra_services: Optional[Sequence[Union[ExtraService, int]]] = None,
+    ) -> List[FreightResponse]:
+
+        if self.posting_list is None:
+            return None
+
+        for labels in self.posting_list.shipping_labels.values():
+            yield super().calculate_freights(
+                labels.posting_card, [labels.service],
+                labels.sender.zip_code, labels.receiver.zip_code,
+                labels.package, labels.value,
+                labels.extra_services
+            )[0]
+
+    def _drop_posting_list_data(self) -> None:
+        """
+        Erase sender, receiver and packages data.
+
+        :return: None
+        """
+        self._packages = []
+        self._receiver = None
+        self._sender = None
+
+    def generate_delivery_labels_pdf(self, filepath: str, pdf: PDF = None) -> None:
+        if self.posting_list:
+            self._render.render_labels(pdf).save(filepath)
+        else:
+            raise Exception('The posting list is None.')
+
+    def generate_delivery_posting_list_pdf(self, filepath: str, pdf: PDF = None) -> None:
+        if self.posting_list:
+            self._render.render_posting_list(pdf).save(filepath)
+        else:
+            raise Exception('The posting list is None.')
 
     def add_package(self, **package) -> None:
         """
@@ -187,44 +247,40 @@ class SIGEPy:
     # TODO More functions at SIGEP documentation
 
     @property
-    def sender(self):
+    def sender(self) -> Address:
         return self._sender
 
     @property
-    def receiver(self):
+    def receiver(self) -> Address:
         return self._receiver
 
     @property
-    def packages(self):
+    def packages(self) -> List[Package]:
         return self._packages
 
     @property
-    def user(self):
+    def user(self) -> User:
         return self._user
 
     @property
-    def client(self):
-        return self._client
-
-    @property
-    def contract(self):
+    def contract(self) -> Contract:
         return self._contract
 
     @property
-    def posting_card(self):
+    def posting_card(self) -> PostingCard:
         return self._posting_card
 
     @property
-    def posting_list(self):
+    def posting_list(self) -> PostingList:
         return self._posting_list
 
     @posting_list.setter
-    def posting_list(self, posting_list: PostingList):
+    def posting_list(self, posting_list: PostingList) -> None:
         self._posting_list = posting_list
         self._posting_list_renderer.posting_list = posting_list
 
     @property
-    def tracking_codes(self):
+    def tracking_codes(self) -> List[TrackingCode]:
         if self.posting_list:
-            return map(lambda labels: labels.tracking_code.code,
-                       self.posting_list.shipping_labels)
+            return list(map(lambda labels: labels.tracking_code,
+                            self.posting_list.shipping_labels))

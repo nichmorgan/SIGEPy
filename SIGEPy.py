@@ -59,11 +59,15 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         self._packages = []
 
         self._posting_list = None
-        self._render = PostingReportPDFRenderer(**kwargs)
+
+        render_kwargs = {k: kwargs.pop(k)
+                         for k in filter(lambda k: k in ['page_size', 'shipping_labels_margin', 'posting_list_margin'],
+                                         kwargs.copy())}
+        self._render = PostingReportPDFRenderer(**render_kwargs)
         self._sender = None
         self._receiver = None
 
-        super(Correios, self).__init__(usr, pwd, **kwargs)
+        Correios.__init__(self, usr, pwd, **kwargs)
 
     def get_user(self, **kwargs) -> User:
         return self.user
@@ -120,47 +124,6 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         self._render.posting_list = closed_posting_list
         self._drop_posting_list_data()
         return closed_posting_list
-
-    def calculate_delivery_time(self,
-                                service: Union[Service, int] = None,
-                                from_zip: Union[ZipCode, int, str] = None,
-                                to_zip: Union[ZipCode, int, str] = None
-                                ) -> Union[int, List[int]]:
-
-        if not any(obj is None for obj in [service, from_zip, to_zip]):
-            return super().calculate_delivery_time(service, from_zip, to_zip)
-
-        elif not any(obj is None for obj in [from_zip, to_zip]) and len(self.packages) > 0:
-            for package in self.packages:
-                yield super().calculate_delivery_time(package.service, from_zip, to_zip)
-
-        elif all(obj is None for obj in [service, from_zip, to_zip]):
-            for label in self.posting_list.shipping_labels.values():
-                yield super().calculate_delivery_time(label.service, label.sender.zip_code, label.receiver.zip_code)
-        else:
-            return None
-
-    def calculate_freights(
-            self,
-            posting_card: PostingCard,
-            services: List[Union[Service, int]],
-            from_zip: Union[ZipCode, int, str],
-            to_zip: Union[ZipCode, int, str],
-            package: Package,
-            value: Union[Decimal, float] = 0.00,
-            extra_services: Optional[Sequence[Union[ExtraService, int]]] = None,
-    ) -> List[FreightResponse]:
-
-        if self.posting_list is None:
-            return None
-
-        for labels in self.posting_list.shipping_labels.values():
-            yield super().calculate_freights(
-                labels.posting_card, [labels.service],
-                labels.sender.zip_code, labels.receiver.zip_code,
-                labels.package, labels.value,
-                labels.extra_services
-            )[0]
 
     def _drop_posting_list_data(self) -> None:
         """
@@ -277,10 +240,44 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
     @posting_list.setter
     def posting_list(self, posting_list: PostingList) -> None:
         self._posting_list = posting_list
-        self._posting_list_renderer.posting_list = posting_list
+        self._render.posting_list = posting_list
 
     @property
     def tracking_codes(self) -> List[TrackingCode]:
         if self.posting_list:
             return list(map(lambda labels: labels.tracking_code,
                             self.posting_list.shipping_labels))
+
+    @property
+    def delivery_time(self) -> List[int]:
+        delivery_time = []
+        if self.posting_list:
+            for label in self.posting_list.shipping_labels.values():
+                delivery_time.append(super().calculate_delivery_time(label.service, label.sender.zip_code,
+                                                                     label.receiver.zip_code))
+        return delivery_time
+
+    @property
+    def freights(self) -> List[FreightResponse]:
+        freights = []
+        if self.posting_list:
+            for labels in self.posting_list.shipping_labels.values():
+                freights.append(super().calculate_freights(
+                    labels.posting_card, [labels.service],
+                    labels.sender.zip_code, labels.receiver.zip_code,
+                    labels.package, labels.value,
+                    labels.extra_services
+                )[0])
+        return freights
+
+if '__main__' == __name__:
+    from sample_data import *
+    s = SIGEPy(*SIGEPY_DATA.values())
+    s.create_sender(**SENDER_TEST)
+    s.create_receiver(**PRISION_RECEIVER_TEST)
+    s.add_package(**PACKAGE_ENVELOPE_TEST)
+    s.close_posting_list()
+
+    f = s.freights[0]
+    d = s.delivery_time[0]
+    print(f,d)

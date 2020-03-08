@@ -69,18 +69,17 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
 
         Correios.__init__(self, usr, pwd, **kwargs)
 
-    def get_user(self, **kwargs) -> User:
-        return self.user
+    def get_user(self, *args, **kwargs) -> User:
+        if not (args or kwargs):
+            return self.user
+        return super().get_user(*args, **kwargs)
 
-    def get_posting_card_status(self, posting_card: PostingCard = None) -> Union[bool, None]:
-        if posting_card:
-            return super().get_posting_card_status(posting_card)
-        elif self.posting_card:
+    def get_posting_card_status(self, *args, **kwargs) -> Union[bool, None]:
+        if not (args or kwargs):
             return super().get_posting_card_status(self.posting_card)
-        else:
-            return None
+        return super().get_posting_card_status(*args, **kwargs)
 
-    def request_tracking_codes(self, service: Union[Service, int], quantity=1, receiver_type="C", **kwargs) -> list:
+    def request_tracking_codes(self, *args, **kwargs) -> list:
         """
         Generates tracking codes.
 
@@ -88,12 +87,12 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param quantity: The quantity of tracking codes to be generated.
         :return: List of tracking codes.
         """
-        if isinstance(service, int):
-            service = Service.get(service)
+        if not 'user' in kwargs and len(args) == 0:
+            kwargs.update({'user': self.user})
 
-        return super().request_tracking_codes(self.user, service, quantity, receiver_type)
+        return super().request_tracking_codes(*args, **kwargs)
 
-    def close_posting_list(self, custom_id: Optional[int] = None, **kwargs) -> PostingList:
+    def close_posting_list(self, custom_id: Optional[int] = None, *args, **kwargs) -> PostingList:
         """
         Creates the pre-delivery's data.
 
@@ -101,6 +100,10 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param drop_data_at_end: Erase sender, receiver and packages data after create the pre-delivery's data.
         :return: The pre-delivery's data as PostingList
         """
+
+        if args or kwargs:
+            return super().close_posting_list(*args, **kwargs)
+
         assert len(self._packages) > 0, 'No packages to send. Register at least one package to use this function.'
         assert isinstance(self.sender, Address), 'Invalid sender address.'
         assert isinstance(self.receiver, Address), 'Invalid receiver address.'
@@ -113,7 +116,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
             label = ShippingLabel(
                 posting_card=self.posting_card,
                 sender=self.sender, receiver=self.receiver,
-                service=package.service, tracking_code=self.request_tracking_codes(package.service, 1)[0],
+                service=package.service, tracking_code=self.request_tracking_codes(service=package.service)[0],
                 package=package
             )
 
@@ -124,6 +127,18 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         self._render.posting_list = closed_posting_list
         self._drop_posting_list_data()
         return closed_posting_list
+
+    def verify_service_availability(self, *args, **kwargs) -> Union[bool, List[bool], None]:
+        if args or kwargs:
+            return super().verify_service_availability(*args, **kwargs)
+        elif self.posting_list:
+            label: ShippingLabel
+            for label in self.posting_list.shipping_labels.values():
+                yield super().verify_service_availability(label.posting_card,
+                                                          label.service,
+                                                          label.sender.zip_code,
+                                                          label.receiver.zip_code)
+        return None
 
     def _drop_posting_list_data(self) -> None:
         """
@@ -147,7 +162,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         else:
             raise Exception('The posting list is None.')
 
-    def add_package(self, **package) -> None:
+    def add_package(self, *args, **kwargs) -> None:
         """
         Add a Package class to delivery. Use the fields below (the service is required):\n
         package_type:
@@ -162,10 +177,12 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param package: The fields of a Package class with service as required field
         :return: None
         """
-        assert 'service' in package, "The package's service  is required."
-        self._packages.append(Package(**package))
+        if (not 'service' in kwargs) and (len(args) < 7):
+            raise Exception('Service is required.')
 
-    def create_sender(self, **sender) -> None:
+        self._packages.append(Package(*args, **kwargs))
+
+    def create_sender(self, *args, **kwargs) -> None:
         """
         Register a sender to delivery. Parameters below:
             name: str,\n
@@ -184,9 +201,9 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param sender: Address parameters.
         :return: None
         """
-        self._sender = Address(**sender)
+        self._sender = Address(*args, **kwargs)
 
-    def create_receiver(self, **receiver) -> None:
+    def create_receiver(self, *args, **kwargs) -> None:
         """
         Register a receiver to delivery. Parameters below:
             name: str,\n
@@ -205,7 +222,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param receiver: Address parameters.
         :return: None
         """
-        self._receiver = Address(**receiver)
+        self._receiver = Address(*args, **kwargs)
 
     # TODO More functions at SIGEP documentation
 
@@ -245,39 +262,47 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
     @property
     def tracking_codes(self) -> List[TrackingCode]:
         if self.posting_list:
-            return list(map(lambda labels: labels.tracking_code,
-                            self.posting_list.shipping_labels))
+            label: ShippingLabel
+            for label in self.posting_list.shipping_labels.values():
+                yield label.tracking_code
+        return None
 
     @property
     def delivery_time(self) -> List[int]:
-        delivery_time = []
         if self.posting_list:
+            label: ShippingLabel
             for label in self.posting_list.shipping_labels.values():
-                delivery_time.append(super().calculate_delivery_time(label.service, label.sender.zip_code,
-                                                                     label.receiver.zip_code))
-        return delivery_time
+                yield super().calculate_delivery_time(label.service,
+                                                      label.sender.zip_code,
+                                                      label.receiver.zip_code)
+        return None
 
     @property
     def freights(self) -> List[FreightResponse]:
-        freights = []
-        if self.posting_list:
-            for labels in self.posting_list.shipping_labels.values():
-                freights.append(super().calculate_freights(
-                    labels.posting_card, [labels.service],
-                    labels.sender.zip_code, labels.receiver.zip_code,
-                    labels.package, labels.value,
-                    labels.extra_services
-                )[0])
-        return freights
+        if isinstance(self.posting_list, PostingList):
+            label: ShippingLabel
+            for label in self.posting_list.shipping_labels.values():
+                yield super().calculate_freights(
+                    label.posting_card, [label.service],
+                    label.sender.zip_code, label.receiver.zip_code,
+                    label.package, label.value,
+                    label.extra_services
+                )[0]
+        return None
+
+
 
 if '__main__' == __name__:
     from sample_data import *
+
     s = SIGEPy(*SIGEPY_DATA.values())
     s.create_sender(**SENDER_TEST)
-    s.create_receiver(**PRISION_RECEIVER_TEST)
-    s.add_package(**PACKAGE_ENVELOPE_TEST)
+    s.create_receiver(**RECEIVER_TEST)
+    for i, pack_list in enumerate([PAC_PACKS, SEDEX_PACKS]):
+        for pack in pack_list:
+            s.add_package(**pack)
     s.close_posting_list()
 
-    f = s.freights[0]
-    d = s.delivery_time[0]
-    print(f,d)
+    f = list(s.freights)
+
+    print('posting_list')

@@ -53,6 +53,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
 
         self._user = User(company_name, company_cnpj)
         # self._client = Correios(usr, pwd)
+
         self._contract = Contract(self._user, contract_number, contract_regional_direction)
         self._posting_card = PostingCard(self._contract, contract_post_card_number, contract_admin_code)
 
@@ -79,7 +80,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
             return super().get_posting_card_status(self.posting_card)
         return super().get_posting_card_status(*args, **kwargs)
 
-    def request_tracking_codes(self, *args, **kwargs) -> list:
+    def request_tracking_codes(self, service: Union[Service, int, str], **kwargs) -> list:
         """
         Generates tracking codes.
 
@@ -87,10 +88,8 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         :param quantity: The quantity of tracking codes to be generated.
         :return: List of tracking codes.
         """
-        if not 'user' in kwargs and len(args) == 0:
-            kwargs.update({'user': self.user})
-
-        return super().request_tracking_codes(*args, **kwargs)
+        user = kwargs.get('user', self.user)
+        return super().request_tracking_codes(user, Service.get(service), **kwargs)
 
     def close_posting_list(self, custom_id: Optional[int] = None, *args, **kwargs) -> PostingList:
         """
@@ -129,16 +128,20 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         return closed_posting_list
 
     def verify_service_availability(self, *args, **kwargs) -> Union[bool, List[bool], None]:
+        saida = []
         if args or kwargs:
             return super().verify_service_availability(*args, **kwargs)
         elif self.posting_list:
             label: ShippingLabel
             for label in self.posting_list.shipping_labels.values():
-                yield super().verify_service_availability(label.posting_card,
+                saida.append(super().verify_service_availability(label.posting_card,
                                                           label.service,
                                                           label.sender.zip_code,
-                                                          label.receiver.zip_code)
-        return None
+                                                          label.receiver.zip_code))
+
+            return saida
+        else:
+            return None
 
     def _drop_posting_list_data(self) -> None:
         """
@@ -272,10 +275,10 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
         if self.posting_list:
             label: ShippingLabel
             for label in self.posting_list.shipping_labels.values():
-                yield super().calculate_delivery_time(label.service,
+                yield int(super().calculate_delivery_time(label.service,
                                                       label.sender.zip_code,
-                                                      label.receiver.zip_code)
-        return None
+                                                      label.receiver.zip_code))
+        return 0
 
     @property
     def freights(self) -> List[FreightResponse]:
@@ -289,7 +292,6 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
                     label.extra_services
                 )[0]
         return None
-
 
 
 if '__main__' == __name__:

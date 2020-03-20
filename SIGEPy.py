@@ -6,7 +6,6 @@ from correios.models.data import (
     SERVICE_SEDEX, SERVICE_SEDEX10, SERVICE_SEDEX12, SERVICE_E_SEDEX, SERVICE_SEDEX_INDUSTRIAL,
     REGIONAL_DIRECTIONS
 )
-
 from correios.client import Correios
 from correios.models.user import *
 from correios.models.posting import *
@@ -300,9 +299,8 @@ if '__main__' == __name__:
     s = SIGEPy(*SIGEPY_DATA.values())
     s.create_sender(**SENDER_TEST)
     s.create_receiver(**RECEIVER_TEST)
-    for i, pack_list in enumerate([PAC_PACKS, SEDEX_PACKS]):
-        for pack in pack_list:
-            s.add_package(**pack)
+    for i, pack_list in PACKS_SERVICE:
+        s.add_package(**pack)
     s.close_posting_list()
 
     f = list(s.freights)

@@ -4,10 +4,8 @@ from sample_data import *
 from tempfile import TemporaryDirectory
 from pathlib import Path
 from random import randrange, choice
-import json, pydash
-
-SENDER_TEST = SENDER_TEST[list(SENDER_TEST.keys())[0]]
-RECEIVER_TEST = RECEIVER_TEST[list(RECEIVER_TEST.keys())[0]]
+import json
+import pydash
 
 
 class TestSigepy(unittest.TestCase):
@@ -94,7 +92,7 @@ class TestCEP(unittest.TestCase):
         uf_zipcode_range = data.ZIP_CODE_MAP[uf]
         zipcodes = []
         tries = 0
-        while(len(zipcodes) < qtd):
+        while (len(zipcodes) < qtd):
             zip_left, zip_right = uf_zipcode_range
 
             zip_left = str(choice([randrange(r.start, r.stop, r.step) for r in zip_left.ranges]))[:5]
@@ -122,10 +120,10 @@ class TestCEP(unittest.TestCase):
             for zuf in self.generate_zipcode(uf, 3):
                 for serv in pydash.keys(data.SERVICES):
                     av = self.s.verify_service_availability(self.s.posting_card,
-                                                       serv,
-                                                       Address(**SENDER_TEST).zip_code,
-                                                       zuf
-                                                       )
+                                                            serv,
+                                                            Address(**SENDER_TEST).zip_code,
+                                                            zuf
+                                                            )
                     key = '%s.ok.%s-%s' if av else '%s.err.%s-%s'
                     key %= (uf, serv, data.SERVICES[serv]['description'])
                     key = key.upper()

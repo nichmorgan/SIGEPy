@@ -299,8 +299,8 @@ if '__main__' == __name__:
     s = SIGEPy(*SIGEPY_DATA.values())
     s.create_sender(**SENDER_TEST)
     s.create_receiver(**RECEIVER_TEST)
-    for i, pack_list in PACKS_SERVICE:
-        s.add_package(**pack)
+    for pack_list in PACKS_SERVICE:
+        s.add_package(**pack_list)
     s.close_posting_list()
 
     f = list(s.freights)

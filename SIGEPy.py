@@ -11,7 +11,6 @@ from correios.models.user import *
 from correios.models.posting import *
 from correios.renderers.pdf import PostingReportPDFRenderer, PDF
 
-
 class SIGEPy(Correios, PostingReportPDFRenderer):
     def __init__(self,
                  usr: str, pwd: str,
@@ -122,7 +121,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
 
         closed_posting_list = super().close_posting_list(closed_posting_list, self.posting_card)
         self.posting_list = closed_posting_list
-        self._render.posting_list = closed_posting_list
+        self._render.set_posting_list(closed_posting_list)
         self._drop_posting_list_data()
         return closed_posting_list
 
@@ -294,7 +293,7 @@ class SIGEPy(Correios, PostingReportPDFRenderer):
 
 
 if '__main__' == __name__:
-    from sample_data import *
+    from data_samples.sample_data import *
 
     s = SIGEPy(*SIGEPY_DATA.values())
     s.create_sender(**SENDER_TEST)
@@ -302,6 +301,8 @@ if '__main__' == __name__:
     for pack_list in PACKS_SERVICE:
         s.add_package(**pack_list)
     s.close_posting_list()
+    s.generate_delivery_labels_pdf('test_code.pdf')
+    s.generate_delivery_posting_list_pdf('post.pdf')
 
     f = list(s.freights)
 

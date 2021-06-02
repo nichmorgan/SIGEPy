@@ -16,6 +16,6 @@ reportlab==3.5.34
 requests==2.23.0
 requests-toolbelt==0.9.1
 six==1.14.0
-urllib3==1.25.8
+urllib3==1.26.5
 wincertstore==0.2
 zeep==3.4.0
